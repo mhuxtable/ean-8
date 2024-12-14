@@ -126,6 +126,21 @@
             return bars;
         }
 
+        function convertToEAN13(ean8) {
+            const prefix = ean8[0];
+            const productCode = ean8.slice(1, 5) + ean8[5];  // 4 product digits + first zero
+            const ean13Base = prefix + '000000' + productCode;
+            
+            // Calculate EAN13 check digit
+            let sum = 0;
+            for (let i = 0; i < ean13Base.length; i++) {
+                sum += parseInt(ean13Base[i]) * (i % 2 === 0 ? 1 : 3);
+            }
+            const check = (10 - (sum % 10)) % 10;
+            
+            return ean13Base + check;
+        }
+
         function generateBarcode() {
             const input = document.getElementById('productNumber');
             const resultDiv = document.getElementById('result');
@@ -139,9 +154,12 @@
             }
             
             const barcode = createInStoreBarcode(number);
+            const ean13 = convertToEAN13(barcode);
+
             resultDiv.innerHTML = `
                 <p>Product Number: ${number}</p>
                 <p>EAN-8 Barcode: ${barcode}</p>
+                <p>EAN-13 Barcode: ${ean13}</p>
                 <p>Structure: 2 (prefix) + ${barcode.slice(1,5)} (product) + 00 (price/weight) + ${barcode.slice(-1)} (check digit)</p>
             `;
             
