@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EAN-8 Barcode Generator</title>
+    <style>
+        .controls { margin: 20px 0; }
+        .controls label { margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <h1>EAN-8 Barcode Generator</h1>
+    
+    <div class="controls">
+        <label for="productNumber">Product number (0-9999):</label>
+        <input type="number" id="productNumber" min="0" max="9999">
+    </div>
+    
+    <div class="controls">
+        <label for="barcodeHeight">Barcode height (px):</label>
+        <input type="number" id="barcodeHeight" value="100" min="50" max="400">
+        
+        <label for="barcodeScale">Scale:</label>
+        <input type="number" id="barcodeScale" value="2" min="1" max="5" step="0.5">
+    </div>
+    
+    <button onclick="generateBarcode()">Generate</button>
+    <button id="downloadSVG" onclick="downloadSVG()" style="display:none;">Download SVG</button>
+    <button id="downloadPNG" onclick="downloadPNG()" style="display:none;">Download PNG</button>
+    
+    <div id="result"></div>
+    <div id="barcode"></div>
+
+    <script>
+        const ENCODING_PATTERNS = {
+            L: {
+                0: "0001101", 1: "0011001", 2: "0010011", 3: "0111101",
+                4: "0100011", 5: "0110001", 6: "0101111", 7: "0111011",
+                8: "0110111", 9: "0001011"
+            },
+            R: {
+                0: "1110010", 1: "1100110", 2: "1101100", 3: "1000010",
+                4: "1011100", 5: "1001110", 6: "1010000", 7: "1000100",
+                8: "1001000", 9: "1110100"
+            }
+        };
+
+        const GUARD_START = "101";
+        const GUARD_MIDDLE = "01010";
+        const GUARD_END = "101";
+
+        function calculateCheckDigit(digits) {
+            let total = 0;
+            const reversedDigits = digits.split('').reverse();
+            for (let i = 0; i < reversedDigits.length; i++) {
+                const weight = i % 2 === 0 ? 3 : 1;
+                total += parseInt(reversedDigits[i]) * weight;
+            }
+            return ((10 - (total % 10)) % 10).toString();
+        }
+
+        function createInStoreBarcode(number) {
+            const baseNumber = '2' + number.toString().padStart(4, '0') + "00";
+            const checkDigit = calculateCheckDigit(baseNumber);
+            return baseNumber + checkDigit;
+        }
+
+        function createBarcodeSVG(barcodeString) {
+            const scale = parseFloat(document.getElementById('barcodeScale').value);
+            const height = parseInt(document.getElementById('barcodeHeight').value);
+            const baseWidth = 95; // Base width for single scale
+            const width = baseWidth * scale;
+            const xStart = 10 * scale;
+            const barWidth = scale;
+            
+            // Calculate text positioning
+            const textSize = 12 * scale;
+            const barHeight = height - (textSize * 2); // Reduce bar height to make room for text
+            const textY = height - (textSize / 2); // Position text below bars
+            
+            let svg = `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+            svg += `<rect width="${width}" height="${height}" fill="white"/>`;
+            
+            let x = xStart;
+            
+            // Add start guard
+            svg += encodeBars(GUARD_START, x, barWidth, barHeight);
+            x += GUARD_START.length * barWidth;
+            
+            // Encode left half
+            for (let i = 0; i < 4; i++) {
+                const digit = barcodeString[i];
+                const pattern = ENCODING_PATTERNS.L[digit];
+                svg += encodeBars(pattern, x, barWidth, barHeight);
+                svg += `<text x="${x + (pattern.length * barWidth/2)}" y="${textY}" 
+                        text-anchor="middle" font-size="${textSize}">${digit}</text>`;
+                x += pattern.length * barWidth;
+            }
+            
+            // Add middle guard
+            svg += encodeBars(GUARD_MIDDLE, x, barWidth, barHeight);
+            x += GUARD_MIDDLE.length * barWidth;
+            
+            // Encode right half
+            for (let i = 4; i < 8; i++) {
+                const digit = barcodeString[i];
+                const pattern = ENCODING_PATTERNS.R[digit];
+                svg += encodeBars(pattern, x, barWidth, barHeight);
+                svg += `<text x="${x + (pattern.length * barWidth/2)}" y="${textY}" 
+                        text-anchor="middle" font-size="${textSize}">${digit}</text>`;
+                x += pattern.length * barWidth;
+            }
+            
+            // Add end guard
+            svg += encodeBars(GUARD_END, x, barWidth, barHeight);
+            
+            return svg + '</svg>';
+        }
+
+        function encodeBars(pattern, x, width, height) {
+            let bars = '';
+            for (let i = 0; i < pattern.length; i++) {
+                if (pattern[i] === '1') {
+                    bars += `<rect x="${x + (i * width)}" y="10" width="${width}" height="${height}" fill="black"/>`;
+                }
+            }
+            return bars;
+        }
+
+        function generateBarcode() {
+            const input = document.getElementById('productNumber');
+            const resultDiv = document.getElementById('result');
+            const barcodeDiv = document.getElementById('barcode');
+            
+            const number = parseInt(input.value);
+            
+            if (isNaN(number) || number < 0 || number > 9999) {
+                resultDiv.innerHTML = 'Please enter a number between 0 and 9999';
+                return;
+            }
+            
+            const barcode = createInStoreBarcode(number);
+            resultDiv.innerHTML = `
+                <p>Product Number: ${number}</p>
+                <p>EAN-8 Barcode: ${barcode}</p>
+                <p>Structure: 2 (prefix) + ${barcode.slice(1,5)} (product) + 00 (price/weight) + ${barcode.slice(-1)} (check digit)</p>
+            `;
+            
+            barcodeDiv.innerHTML = createBarcodeSVG(barcode);
+            document.getElementById('downloadSVG').style.display = 'inline';
+            document.getElementById('downloadPNG').style.display = 'inline';
+        }
+
+        function downloadSVG() {
+            const svg = document.querySelector('svg');
+            const serializer = new XMLSerializer();
+            const source = serializer.serializeToString(svg);
+            const blob = new Blob([source], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'barcode.svg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function downloadPNG() {
+            const svg = document.querySelector('svg');
+            const serializer = new XMLSerializer();
+            const source = serializer.serializeToString(svg);
+            const img = new Image();
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+            
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                const scale = window.devicePixelRatio || 1;
+                canvas.width = svg.viewBox.baseVal.width * scale;
+                canvas.height = svg.viewBox.baseVal.height * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.scale(scale, scale);
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = 'barcode.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            };
+        }
+    </script>
+</body>
+</html>
